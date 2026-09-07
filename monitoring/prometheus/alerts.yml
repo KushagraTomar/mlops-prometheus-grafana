@@ -1,0 +1,33 @@
+groups:
+  - name: ml-app-alerts
+    rules:
+      - alert: HighHttpErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"4..|5.."}[5m]))
+          /
+          clamp_min(sum(rate(http_requests_total[5m])), 1)
+          > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP error rate on the ML service"
+          description: "More than 10% of requests are returning 4xx/5xx (current value: {{ $value | humanizePercentage }})."
+
+      - alert: HighLatencyP99
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p99 request latency"
+          description: "p99 latency is above 500ms (current value: {{ $value }}s)."
+
+      - alert: FeatureDriftDetected
+        expr: abs(ml_feature_drift_zscore) > 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Feature drift detected on {{ $labels.feature }}"
+          description: "Z-score for feature '{{ $labels.feature }}' is {{ $value }}, indicating incoming data has shifted from the training distribution."

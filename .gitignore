@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+model/artifacts/*.json
+data/*.json
+.DS_Store
