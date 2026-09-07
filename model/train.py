@@ -1,5 +1,6 @@
-"""Train an XGBoost classifier on the UCI Adult Census Income dataset and
-export the artifacts (model + feature statistics) consumed by the serving API.
+"""Train an XGBoost classifier on the real-world IBM Telco Customer Churn
+dataset and export the artifacts (model + feature statistics) consumed by
+the serving API.
 
 Run:
     python model/train.py
@@ -7,33 +8,51 @@ Run:
 import json
 import os
 
+import pandas as pd
 import xgboost as xgb
-from sklearn.datasets import fetch_openml
 from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 
 ARTIFACT_DIR = os.path.join(os.path.dirname(__file__), "artifacts")
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+RAW_CSV_PATH = os.path.join(DATA_DIR, "raw", "Telco-Customer-Churn.csv")
+DATA_URL = (
+    "https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/"
+    "master/data/Telco-Customer-Churn.csv"
+)
 
-NUMERIC_FEATURES = [
-    "age", "fnlwgt", "education-num", "capital-gain", "capital-loss", "hours-per-week",
-]
+NUMERIC_FEATURES = ["tenure", "MonthlyCharges", "TotalCharges", "SeniorCitizen"]
 CATEGORICAL_FEATURES = [
-    "workclass", "education", "marital-status", "occupation", "relationship",
-    "race", "sex", "native-country",
+    "gender", "Partner", "Dependents", "PhoneService", "MultipleLines",
+    "InternetService", "OnlineSecurity", "OnlineBackup", "DeviceProtection",
+    "TechSupport", "StreamingTV", "StreamingMovies", "Contract",
+    "PaperlessBilling", "PaymentMethod",
 ]
 FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
 
-def load_data():
-    print("Fetching the Adult Income dataset from OpenML (cached after first run)...")
-    bunch = fetch_openml(name="adult", version=2, as_frame=True)
-    df = bunch.frame.copy()
-    df.columns = [c.replace("_", "-") for c in df.columns]
-    target_col = "class" if "class" in df.columns else "income"
-    df = df.rename(columns={target_col: "target"})
-    df["target"] = df["target"].astype(str).str.contains(">50K").astype(int)
+def load_data() -> pd.DataFrame:
+    os.makedirs(os.path.dirname(RAW_CSV_PATH), exist_ok=True)
+    # Download the dataset
+    if not os.path.exists(RAW_CSV_PATH):
+        print(f"Downloading the Telco Customer Churn dataset from {DATA_URL} ...")
+        pd.read_csv(DATA_URL).to_csv(RAW_CSV_PATH, index=False)
+    else:
+        print(f"Using cached dataset at {RAW_CSV_PATH}")
+
+    df = pd.read_csv(RAW_CSV_PATH)
+
+    # TotalCharges loads as a string column because a few rows are blank.
+    # errors="coerce" turns those blanks into NaN instead of raising, and
+    # fillna(0.0) fills them with 0, blanks belong to brand-new customers 
+    # (tenure=0) who haven't been billed yet, not actually-missing data.
+    df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors="coerce").fillna(0.0)
+
+    # Binary label XGBoost needs: True/False -> 1/0 (1 = customer churned).
+    df["target"] = (df["Churn"] == "Yes").astype(int)
     for col in CATEGORICAL_FEATURES:
+        # required to enable_categorical=True to split
+        # these natively instead of needing one-hot encoding.
         df[col] = df[col].astype(str).astype("category")
     for col in NUMERIC_FEATURES:
         df[col] = df[col].astype(float)
@@ -48,12 +67,14 @@ def main():
     X = df[FEATURES]
     y = df["target"]
 
+    print(f"X: {X.head()}, y: {y.head()}")
+
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
 
     model = xgb.XGBClassifier(
-        n_estimators=200,
+        n_estimators=100,
         max_depth=5,
         learning_rate=0.1,
         subsample=0.9,
@@ -96,15 +117,7 @@ def main():
     with open(os.path.join(ARTIFACT_DIR, "feature_stats.json"), "w") as f:
         json.dump(feature_stats, f, indent=2)
 
-    # Held-out sample used by the traffic generator to replay realistic requests.
-    sample = X_test.copy()
-    sample["target"] = y_test.values
-    sample.head(500).to_json(
-        os.path.join(DATA_DIR, "sample_requests.json"), orient="records"
-    )
-
     print(f"Artifacts written to {ARTIFACT_DIR}")
-    print(f"Sample requests written to {DATA_DIR}/sample_requests.json")
 
 
 if __name__ == "__main__":
