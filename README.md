@@ -2,10 +2,11 @@
 
 A small, end-to-end MLOps project built to *teach* the important concepts of
 Prometheus and Grafana, using a real model in the loop rather than a toy
-counter. An XGBoost classifier trained on the real-world **UCI Adult Census
-Income** dataset (predict whether someone earns >$50K/year) is served behind
-FastAPI, instrumented with Prometheus metrics, scraped by Prometheus, and
-visualized with a Grafana dashboard provisioned as code.
+counter. An XGBoost classifier trained on the real-world **IBM Telco
+Customer Churn** dataset (predict whether a customer will cancel their
+subscription) is served behind FastAPI, instrumented with Prometheus
+metrics, scraped by Prometheus, and visualized with a Grafana dashboard
+provisioned as code.
 
 ## Architecture
 
@@ -29,7 +30,7 @@ visualized with a Grafana dashboard provisioned as code.
 ## Quickstart
 
 ```bash
-# 1. Train the model (downloads the dataset on first run, ~30s)
+# 1. Train the model (downloads the dataset to data/raw/ on first run, ~10s)
 pip install -r requirements.txt
 python model/train.py
 
@@ -85,7 +86,9 @@ concerns that are specific to a deployed ML model:
 - **`ml_feature_drift_zscore{feature}`** — a simple, explainable drift
   signal: how many standard deviations is an incoming feature value from
   what the model was trained on. Run the traffic generator with `--drift` to
-  see this spike (and trigger the `FeatureDriftDetected` alert).
+  see `tenure` and `MonthlyCharges` spike (and trigger the
+  `FeatureDriftDetected` alert) — e.g. simulating a batch of new,
+  high-paying enterprise customers the model never trained on.
 - **`ml_model_training_accuracy` / `ml_model_training_auc`** — surfaces
   model quality metrics recorded at training time right alongside live
   serving metrics, so a dashboard viewer has both "is it fast/healthy" and
@@ -99,8 +102,40 @@ data, retrains, and overwrites `model/artifacts/`. Rebuild the app image
 
 ## Dataset
 
-[UCI Adult Census Income](https://archive.ics.uci.edu/dataset/2/adult),
-fetched via `sklearn.datasets.fetch_openml("adult")`: ~48,800 real US Census
-records, binary target (income >$50K vs. not). It's used here because it's a
-well-known, real, freely available tabular dataset — a good fit for XGBoost
-and for reasoning about realistic feature drift (age, hours worked, etc.).
+[IBM Telco Customer Churn](https://github.com/IBM/telco-customer-churn-on-icp4d)
+— 7,043 real telecom customer records (demographics, account info, and
+subscribed services) with a binary target: did the customer churn
+(cancel) or not. `model/train.py` downloads it once to `data/raw/` and
+reuses the cached copy afterwards. It's a good fit here because it's a
+well-known, real, freely available tabular dataset with an intuitive
+business story — churn prediction is one of the most common real-world
+uses of XGBoost — and it has a natural mix of numeric (`tenure`,
+`MonthlyCharges`, `TotalCharges`) and categorical (`Contract`,
+`InternetService`, `PaymentMethod`, ...) features for reasoning about
+drift.
+
+Example request body for `/predict`:
+
+```json
+{
+  "tenure": 12,
+  "MonthlyCharges": 70.35,
+  "TotalCharges": 845.5,
+  "SeniorCitizen": 0,
+  "gender": "Female",
+  "Partner": "Yes",
+  "Dependents": "No",
+  "PhoneService": "Yes",
+  "MultipleLines": "No",
+  "InternetService": "Fiber optic",
+  "OnlineSecurity": "No",
+  "OnlineBackup": "Yes",
+  "DeviceProtection": "No",
+  "TechSupport": "No",
+  "StreamingTV": "Yes",
+  "StreamingMovies": "No",
+  "Contract": "Month-to-month",
+  "PaperlessBilling": "Yes",
+  "PaymentMethod": "Electronic check"
+}
+```

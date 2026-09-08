@@ -4,4 +4,5 @@ __pycache__/
 venv/
 model/artifacts/*.json
 data/*.json
+data/raw/
 .DS_Store
