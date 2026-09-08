@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from prometheus_client import Counter, Gauge, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from model_utils import ChurnModel
+from utils import ChurnModel
 
 app = FastAPI(title="Customer Churn Prediction Service", version="1.0.0")
 model = ChurnModel()
