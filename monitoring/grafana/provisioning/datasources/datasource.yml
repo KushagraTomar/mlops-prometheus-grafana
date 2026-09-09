@@ -1,9 +1,9 @@
 apiVersion: 1
 
 datasources:
-  - name: Prometheus
+  - name: Prometheus-ml-app # name shown inside Grafana UI
     type: prometheus
     access: proxy
-    url: http://localhost:9091
+    url: http://localhost:9091 # prom addr and port
     isDefault: true
     editable: true
